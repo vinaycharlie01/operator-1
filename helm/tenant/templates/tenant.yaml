@@ -119,6 +119,13 @@ spec:
     domains: {{- toYaml . | nindent 6 }}
     {{- end }}
     enableSFTP: {{ dig "features" "enableSFTP" false . }}
+    enableGateway: {{ dig "features" "enableGateway" false . }}
+    {{- if dig "features" "enableGateway" false . }}
+    gatewayReplicas: {{ dig "features" "gatewayReplicas" 2 . }}
+    {{- if dig "features" "gatewayHostname" "" . }}
+    gatewayHostname: {{ dig "features" "gatewayHostname" "" . }}
+    {{- end }}
+    {{- end }}
   {{- with (dig "buckets" (list) .) }}
   buckets: {{- toYaml . | nindent 4 }}
   {{- end }}

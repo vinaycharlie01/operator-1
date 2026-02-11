@@ -40,6 +40,14 @@ operator: binary
 
 docker: operator
 	@docker buildx build --no-cache --load --platform linux/$(GOARCH) -t $(TAG) .
+gateway-binary:
+	@CGO_ENABLED=0 GOOS=linux go build -trimpath --ldflags $(LDFLAGS) -o gateway-controller ./cmd/gateway-controller
+
+gateway-controller: gateway-binary
+
+docker-gateway: gateway-controller
+	@docker buildx build --no-cache --load --platform linux/$(GOARCH) -t minio/gateway-controller:$(VERSION) -f Dockerfile.gateway .
+
 
 build: regen-crd verify operator docker
 

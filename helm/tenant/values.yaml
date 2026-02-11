@@ -289,6 +289,16 @@ tenant:
     bucketDNS: false
     domains: { }
     enableSFTP: false
+    ###
+    # Enable Envoy Gateway for the tenant. Defaults to false.
+    enableGateway: true
+    ###
+    # Number of Envoy Gateway replicas. Defaults to 2.
+    gatewayReplicas: 2
+    ###
+    # Hostname for external access to the Envoy Gateway. If set, an Ingress resource will be created.
+    # Example: "gateway.example.com"
+    gatewayHostname: "158.176.9.206.nip.io"
   ###
   # Array of objects describing one or more buckets to create during tenant provisioning.
   # Example:

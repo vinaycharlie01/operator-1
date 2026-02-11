@@ -1,22 +1,48 @@
-operator
-minio-operator
-minio-operator-sidecar
-!minio-operator/
-!operator/
-!tenant/
-.idea/
+# Binaries
 dist/
-*.minisig
-*.zip
-*.log
-.vscode
-minio.yaml
-nancy
-examples/.DS_Store
-testing/openshift/bundle/*
-examples/**/obj/
-.idea
-public.crt
-go_build_operator_
-operator.iml
-.run/
+minio-operator
+gateway-controller
+*.exe
+*.dll
+*.so
+*.dylib
+learn.txt
+# Test binary, built with `go test -c`
+*.test
+Tiltfile
+# Output of the go coverage tool
+*.out
+coverage.txt
+.env.example
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+
+# Mage
+mage_output_file.go
+
+# Helm
+helm-releases/*.tgz
+
+# Tilt
+.tiltbuild/
+
+# Kubernetes
+kubeconfig
+*.kubeconfig

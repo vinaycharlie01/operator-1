@@ -204,6 +204,12 @@ const tenantMinIOImageEnv = "TENANT_MINIO_IMAGE"
 
 const tenantKesImageEnv = "TENANT_KES_IMAGE"
 
+// TenantGatewayImageEnv is the environment variable for the gateway controller image
+const TenantGatewayImageEnv = "TENANT_GATEWAY_IMAGE"
+
+// TenantGatewayImagePullSecretEnv is the environment variable for the gateway controller imagePullSecret name
+const TenantGatewayImagePullSecretEnv = "TENANT_GATEWAY_IMAGE_PULL_SECRET"
+
 const monitoringIntervalEnv = "MONITORING_INTERVAL"
 
 // DefaultMonitoringInterval is how often we run monitoring on tenants

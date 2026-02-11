@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway-controller
+  namespace: minio-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gateway-controller-role
+rules:
+- apiGroups:
+  - minio.min.io
+  resources:
+  - tenants
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gateway-controller-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gateway-controller-role
+subjects:
+- kind: ServiceAccount
+  name: gateway-controller
+  namespace: minio-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-controller
+  namespace: minio-operator
+  labels:
+    app: gateway-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-controller
+  template:
+    metadata:
+      labels:
+        app: gateway-controller
+    spec:
+      serviceAccountName: gateway-controller
+      containers:
+      - name: gateway-controller
+        image: minio/gateway-controller:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - --port=18000
+        - --metrics-bind-address=:8383
+        - --cluster-domain=cluster.local
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: WATCH_NAMESPACES
+          value: ""  # Empty means watch all namespaces
+        ports:
+        - name: xds
+          containerPort: 18000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8383
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /readyz
+            port: 8383
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8383
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-controller
+  namespace: minio-operator
+  labels:
+    app: gateway-controller
+spec:
+  type: ClusterIP
+  ports:
+  - name: xds
+    port: 18000
+    targetPort: 18000
+    protocol: TCP
+  - name: metrics
+    port: 8383
+    targetPort: 8383
+    protocol: TCP
+  selector:
+    app: gateway-controller
+
+# Made with Bob

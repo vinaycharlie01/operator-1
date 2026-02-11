@@ -36,6 +36,7 @@ rules:
       - services
       - events
       - configmaps
+      - endpoints
     verbs:
       - get
       - watch
@@ -74,6 +75,8 @@ rules:
     resources:
       - roles
       - rolebindings
+      - clusterroles
+      - clusterrolebindings
     verbs:
       - create
       - delete
@@ -181,3 +184,15 @@ rules:
       - patch
       - update
       - deletecollection
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch

@@ -22,6 +22,6 @@ COPY --from=build /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-
 COPY CREDITS /licenses/CREDITS
 COPY LICENSE /licenses/LICENSE
 
-COPY minio-operator /minio-operator
+COPY dist/minio-operator-linux-amd64 /minio-operator
 
 ENTRYPOINT ["/minio-operator"]

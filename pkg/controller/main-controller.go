@@ -897,6 +897,22 @@ func (c *Controller) syncHandler(key string) (Result, error) {
 		return WrapResult(Result{}, err)
 	}
 
+	// Check and deploy Envoy Gateway if enabled
+	if tenant.Spec.Features != nil && tenant.Spec.Features.EnableGateway {
+		// Ensure gateway controller is deployed (only once for the cluster)
+		if err := c.ensureGatewayController(ctx); err != nil {
+			klog.V(2).Infof("error ensuring gateway controller: %s", err.Error())
+			return WrapResult(Result{}, err)
+		}
+
+		// Deploy Envoy gateway for this tenant
+		err = c.checkEnvoyGateway(ctx, tenant, nsName)
+		if err != nil {
+			klog.V(2).Infof("error consolidating envoy gateway: %s", err.Error())
+			return WrapResult(Result{}, err)
+		}
+	}
+
 	// List all MinIO Tenants in this namespace.
 	li, err := c.minioClientSet.MinioV2().Tenants(tenant.Namespace).List(context.Background(), metav1.ListOptions{})
 	if err != nil {

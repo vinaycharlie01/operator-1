@@ -75,6 +75,32 @@ operator:
   #      pullPolicy: IfNotPresent
   #
   sidecarImage: {}
+  ###
+  # Specify the Gateway Controller container image to use for the deployment.
+  # The gateway controller provides dynamic Envoy configuration for MinIO Tenants.
+  # ``gatewayImage.tag``
+  # For example, the following sets the image to a custom registry:
+  #
+  # .. code-block:: yaml
+  #
+  #    gatewayImage:
+  #      repository: ghcr.io/your-username/gateway-controller
+  #      tag: v1.0.0
+  #      pullPolicy: IfNotPresent
+  #
+  # The chart also supports specifying an image based on digest value:
+  #
+  # .. code-block:: yaml
+  #
+  #    gatewayImage:
+  #      repository: ghcr.io/your-username/gateway-controller@sha256
+  #      digest: 28c80b379c75242c6fe793dfbf212f43c602140a0de5ebe3d9c2a3a7b9f9f983
+  #      pullPolicy: IfNotPresent
+  #
+  gatewayImage:
+    repository: ghcr.io/vinaycharlie01/gateway-controller
+    tag: latest
+    pullPolicy: Always
   # Install custom resource definitions
   installCRDs: true
   ###

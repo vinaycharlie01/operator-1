@@ -53,6 +53,14 @@ spec:
             - name: "OPERATOR_SIDECAR_IMAGE"
               value: "{{ .Values.operator.sidecarImage.repository }}:{{ .Values.operator.sidecarImage.digest | default .Values.operator.sidecarImage.tag }}"
           {{- end }}
+          {{- if .Values.operator.gatewayImage }}
+            - name: "TENANT_GATEWAY_IMAGE"
+              value: "{{ .Values.operator.gatewayImage.repository }}:{{ .Values.operator.gatewayImage.digest | default .Values.operator.gatewayImage.tag }}"
+          {{- end }}
+          {{- if .Values.operator.imagePullSecrets }}
+            - name: "TENANT_GATEWAY_IMAGE_PULL_SECRET"
+              value: "{{ (index .Values.operator.imagePullSecrets 0).name }}"
+          {{- end }}
           {{- with .Values.operator.env }}
           {{- toYaml . | nindent 12 }}
           {{- end }}

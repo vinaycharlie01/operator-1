@@ -90,6 +90,22 @@ type Features struct {
 	//
 	// Starts minio server with SFTP support
 	EnableSFTP *bool `json:"enableSFTP,omitempty"`
+	// *Optional* +
+	//
+	// Enable Envoy Gateway for the tenant. Defaults to `false`.
+	//
+	EnableGateway bool `json:"enableGateway,omitempty"`
+	// *Optional* +
+	//
+	// Number of Envoy Gateway replicas. Defaults to 2.
+	//
+	GatewayReplicas *int32 `json:"gatewayReplicas,omitempty"`
+	// *Optional* +
+	//
+	// Hostname for external access to the Envoy Gateway. If set, an Ingress resource will be created.
+	// Example: "gateway.example.com"
+	//
+	GatewayHostname string `json:"gatewayHostname,omitempty"`
 }
 
 // TenantSpec (`spec`) defines the configuration of a MinIO Tenant object. +

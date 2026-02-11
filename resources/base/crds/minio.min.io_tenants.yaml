@@ -1028,8 +1028,15 @@ spec:
                           type: string
                         type: array
                     type: object
+                  enableGateway:
+                    type: boolean
                   enableSFTP:
                     type: boolean
+                  gatewayHostname:
+                    type: string
+                  gatewayReplicas:
+                    format: int32
+                    type: integer
                 type: object
               image:
                 type: string
