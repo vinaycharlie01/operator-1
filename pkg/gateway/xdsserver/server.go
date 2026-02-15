@@ -103,5 +103,3 @@ func (s *Server) GracefulStop() {
 	s.logger.Info("gracefully shutting down server")
 	s.grpcServer.GracefulStop()
 }
-
-// Made with Bob
