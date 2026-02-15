@@ -9,7 +9,6 @@ gateway-controller
 learn.txt
 # Test binary, built with `go test -c`
 *.test
-Tiltfile
 # Output of the go coverage tool
 *.out
 coverage.txt
