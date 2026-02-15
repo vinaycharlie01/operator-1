@@ -1,7 +1,5 @@
 # Binaries
 dist/
-minio-operator
-gateway-controller
 *.exe
 *.dll
 *.so
