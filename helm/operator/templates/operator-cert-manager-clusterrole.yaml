@@ -1,0 +1,27 @@
+{{- if .Values.operator.certManager.enabled }}
+---
+# ClusterRole for cert-manager resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minio-operator-cert-manager
+  labels: {{- include "minio-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  - certificaterequests
+  - issuers
+  - clusterissuers
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+{{- end }}
+
+# Made with Bob

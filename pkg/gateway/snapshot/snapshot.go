@@ -106,16 +106,16 @@ func (sb *SnapshotBuilder) buildClusters() error {
 }
 
 func (sb *SnapshotBuilder) buildListeners() error {
-	// Create main HTTP listener
+	// Create main HTTPS listener
 	lb := listener.NewListenerBuilder(ListenerName).
 		WithAddressAndPort("0.0.0.0", 10000).
 		WithHCM("minio_ingress", RouteName, XDSClusterName)
 
-	// Add TLS if configured
+	// Enable TLS for client-facing connections
 	if sb.tenant.Spec.RequestAutoCert != nil && *sb.tenant.Spec.RequestAutoCert {
 		lb = lb.WithTLSTransportSocket(
-			"/etc/envoy/certs/tls.crt",
-			"/etc/envoy/certs/tls.key",
+			"/etc/envoy/gateway-certs/tls.crt",
+			"/etc/envoy/gateway-certs/tls.key",
 			tlsv3.TlsParameters_TLSv1_2,
 			tlsv3.TlsParameters_TLSv1_3,
 		)
@@ -131,21 +131,28 @@ func (sb *SnapshotBuilder) buildListeners() error {
 }
 
 func (sb *SnapshotBuilder) buildRouteConfigs() error {
-	// Build main route for MinIO
-	minioRoute, err := route.NewRouteBuilder().
+	// Build route for MinIO Console (web UI)
+	consoleRoute, err := route.NewRouteBuilder().
 		WithPrefixMatch("/").
-		WithClusterName("minio_cluster").
+		WithClusterName("console_cluster").
 		WithTimeout(300 * time.Second).
 		Build()
 	if err != nil {
-		return fmt.Errorf("failed to build MinIO route: %w", err)
+		return fmt.Errorf("failed to build Console route: %w", err)
 	}
 
-	// Create virtual host
+	// Create virtual host with subdomain matching
+	// Matches: tenant-ns.158.176.9.206.nip.io or *.158.176.9.206.nip.io
+	tenantSubdomain := fmt.Sprintf("%s.*", sb.tenant.Namespace)
+
 	virtualHost := &routev3.VirtualHost{
-		Name:    "minio_service",
-		Domains: []string{"*"},
-		Routes:  []*routev3.Route{minioRoute},
+		Name: fmt.Sprintf("minio_service_%s", sb.tenant.Namespace),
+		Domains: []string{
+			tenantSubdomain, // tenant-ns.*
+			fmt.Sprintf("*.%s.*", sb.tenant.Namespace), // *.tenant-ns.*
+			"*", // Fallback to match all
+		},
+		Routes: []*routev3.Route{consoleRoute},
 	}
 
 	// Create route configuration

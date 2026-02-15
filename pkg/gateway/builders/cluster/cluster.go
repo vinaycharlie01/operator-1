@@ -133,6 +133,21 @@ func (cb *ClusterBuilder) WithUpstreamTLS(sni string, certFile string) *ClusterB
 	return cb
 }
 
+// WithUpstreamTLSNoVerify enables TLS for upstream connections without certificate verification
+func (cb *ClusterBuilder) WithUpstreamTLSNoVerify(sni string) *ClusterBuilder {
+	cb.tlsContext = &tlsv3.UpstreamTlsContext{
+		Sni: sni,
+		CommonTlsContext: &tlsv3.CommonTlsContext{
+			ValidationContextType: &tlsv3.CommonTlsContext_ValidationContext{
+				ValidationContext: &tlsv3.CertificateValidationContext{
+					TrustChainVerification: tlsv3.CertificateValidationContext_ACCEPT_UNTRUSTED,
+				},
+			},
+		},
+	}
+	return cb
+}
+
 // Build returns the built cluster
 func (cb *ClusterBuilder) Build() (*clusterv3.Cluster, error) {
 	if cb.tlsContext != nil {

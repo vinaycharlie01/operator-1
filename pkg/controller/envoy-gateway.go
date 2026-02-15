@@ -26,6 +26,8 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
@@ -38,6 +40,79 @@ const (
 	GatewayControllerAddr = "gateway-controller.minio-operator.svc.cluster.local"
 	GatewayControllerPort = 18000
 )
+
+// checkClusterIssuer ensures the Let's Encrypt ClusterIssuer exists
+func (c *Controller) checkClusterIssuer(ctx context.Context) error {
+	issuerName := "letsencrypt-prod"
+
+	// Get email from environment variable or use default
+	email := os.Getenv("ACME_EMAIL")
+	if email == "" {
+		email = "vinikshatriyas@gmail.com"
+	}
+
+	// Define the ClusterIssuer resource
+	clusterIssuer := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "ClusterIssuer",
+			"metadata": map[string]interface{}{
+				"name": issuerName,
+			},
+			"spec": map[string]interface{}{
+				"acme": map[string]interface{}{
+					"server": "https://acme-v02.api.letsencrypt.org/directory",
+					"email":  email,
+					"privateKeySecretRef": map[string]interface{}{
+						"name": issuerName,
+					},
+					"solvers": []interface{}{
+						map[string]interface{}{
+							"http01": map[string]interface{}{
+								"ingress": map[string]interface{}{
+									"class": "nginx",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Use the k8sClient (controller-runtime client) which supports unstructured resources
+	clusterIssuerGVK := schema.GroupVersionKind{
+		Group:   "cert-manager.io",
+		Version: "v1",
+		Kind:    "ClusterIssuer",
+	}
+	clusterIssuer.SetGroupVersionKind(clusterIssuerGVK)
+
+	// Try to get existing ClusterIssuer
+	existingIssuer := &unstructured.Unstructured{}
+	existingIssuer.SetGroupVersionKind(clusterIssuerGVK)
+	err := c.k8sClient.Get(ctx, types.NamespacedName{Name: issuerName}, existingIssuer)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			klog.V(2).Infof("Creating ClusterIssuer %s", issuerName)
+
+			// Create the ClusterIssuer
+			createErr := c.k8sClient.Create(ctx, clusterIssuer)
+			if createErr != nil {
+				klog.Errorf("Failed to create ClusterIssuer: %v", createErr)
+				return fmt.Errorf("failed to create ClusterIssuer: %w", createErr)
+			}
+
+			klog.Infof("Successfully created ClusterIssuer %s", issuerName)
+			return nil
+		}
+		klog.Errorf("Error checking ClusterIssuer: %v", err)
+		return fmt.Errorf("error checking ClusterIssuer: %w", err)
+	}
+
+	klog.V(4).Infof("ClusterIssuer %s already exists", issuerName)
+	return nil
+}
 
 // checkEnvoyGateway validates and creates/updates the Envoy gateway deployment for the tenant
 func (c *Controller) checkEnvoyGateway(ctx context.Context, tenant *miniov2.Tenant, nsName types.NamespacedName) error {
@@ -69,6 +144,19 @@ func (c *Controller) checkEnvoyGateway(ctx context.Context, tenant *miniov2.Tena
 		}
 	}
 
+	// Ensure ClusterIssuer exists before creating Certificate
+	if err := c.checkClusterIssuer(ctx); err != nil {
+		klog.Warningf("Failed to ensure ClusterIssuer exists: %v", err)
+		// Continue anyway - ClusterIssuer might already exist
+	}
+
+	// Create or update Certificate for TLS if hostname is specified
+	if tenant.Spec.Features.GatewayHostname != "" {
+		if err := c.checkEnvoyCertificate(ctx, tenant); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -77,8 +165,8 @@ func (c *Controller) checkEnvoyConfigMap(ctx context.Context, tenant *miniov2.Te
 	configMapName := fmt.Sprintf("%s-%s", EnvoyConfigMapName, tenant.Name)
 
 	envoyConfig := fmt.Sprintf(`node:
-  cluster: minio-gateway-%s
-  id: envoy-gateway-%s
+  cluster: gateway-%s-%s
+  id: gateway-%s-%s
 
 dynamic_resources:
   ads_config:
@@ -118,7 +206,7 @@ admin:
     socket_address:
       address: 0.0.0.0
       port_value: 9901
-`, tenant.Name, tenant.Name, GatewayControllerAddr, GatewayControllerPort)
+`, tenant.Namespace, tenant.Name, tenant.Namespace, tenant.Name, GatewayControllerAddr, GatewayControllerPort)
 
 	expectedConfigMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -211,8 +299,8 @@ func (c *Controller) checkEnvoyDeployment(ctx context.Context, tenant *miniov2.T
 							Command:         []string{"/usr/local/bin/envoy"},
 							Args: []string{
 								"-c", "/etc/envoy/envoy.yaml",
-								"--service-cluster", fmt.Sprintf("minio-gateway-%s", tenant.Name),
-								"--service-node", fmt.Sprintf("envoy-gateway-%s", tenant.Name),
+								"--service-cluster", fmt.Sprintf("gateway-%s-%s", tenant.Namespace, tenant.Name),
+								"--service-node", fmt.Sprintf("gateway-%s-%s", tenant.Namespace, tenant.Name),
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -230,6 +318,16 @@ func (c *Controller) checkEnvoyDeployment(ctx context.Context, tenant *miniov2.T
 								{
 									Name:      "envoy-config",
 									MountPath: "/etc/envoy",
+								},
+								{
+									Name:      "minio-tls-certs",
+									MountPath: "/etc/envoy/minio-certs",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "gateway-tls-certs",
+									MountPath: "/etc/envoy/gateway-certs",
+									ReadOnly:  true,
 								},
 							},
 							Resources: corev1.ResourceRequirements{
@@ -272,6 +370,40 @@ func (c *Controller) checkEnvoyDeployment(ctx context.Context, tenant *miniov2.T
 									LocalObjectReference: corev1.LocalObjectReference{
 										Name: configMapName,
 									},
+								},
+							},
+						},
+						{
+							Name: "minio-tls-certs",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: fmt.Sprintf("%s-tls", tenant.Name),
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "public.crt",
+											Path: "public.crt",
+										},
+									},
+									Optional: &[]bool{true}[0],
+								},
+							},
+						},
+						{
+							Name: "gateway-tls-certs",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: fmt.Sprintf("envoy-gateway-%s-tls", tenant.Name),
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "tls.crt",
+											Path: "tls.crt",
+										},
+										{
+											Key:  "tls.key",
+											Path: "tls.key",
+										},
+									},
+									Optional: &[]bool{true}[0],
 								},
 							},
 						},
@@ -328,8 +460,20 @@ func (c *Controller) checkEnvoyService(ctx context.Context, tenant *miniov2.Tena
 			Type: corev1.ServiceTypeLoadBalancer,
 			Ports: []corev1.ServicePort{
 				{
+					Name:       "https",
+					Port:       443,
+					TargetPort: intstr.FromInt(10000),
+					Protocol:   corev1.ProtocolTCP,
+				},
+				{
 					Name:       "http",
 					Port:       80,
+					TargetPort: intstr.FromInt(10000),
+					Protocol:   corev1.ProtocolTCP,
+				},
+				{
+					Name:       "console",
+					Port:       9443,
 					TargetPort: intstr.FromInt(10000),
 					Protocol:   corev1.ProtocolTCP,
 				},
@@ -458,6 +602,83 @@ func (c *Controller) checkEnvoyIngress(ctx context.Context, tenant *miniov2.Tena
 		c.recorder.Event(tenant, corev1.EventTypeNormal, "IngressUpdated", fmt.Sprintf("Envoy Gateway Ingress Updated for hostname %s", hostname))
 	}
 
+	return nil
+}
+
+// checkEnvoyCertificate creates or updates the cert-manager Certificate for Envoy gateway
+func (c *Controller) checkEnvoyCertificate(ctx context.Context, tenant *miniov2.Tenant) error {
+	certificateName := fmt.Sprintf("envoy-gateway-%s", tenant.Name)
+	secretName := fmt.Sprintf("envoy-gateway-%s-tls", tenant.Name)
+	hostname := tenant.Spec.Features.GatewayHostname
+
+	// Define the Certificate resource using unstructured
+	certificate := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "Certificate",
+			"metadata": map[string]interface{}{
+				"name":      certificateName,
+				"namespace": tenant.Namespace,
+				"labels": map[string]interface{}{
+					"app":    EnvoyGatewayName,
+					"tenant": tenant.Name,
+				},
+				"ownerReferences": []interface{}{
+					map[string]interface{}{
+						"apiVersion":         miniov2.SchemeGroupVersion.String(),
+						"kind":               "Tenant",
+						"name":               tenant.Name,
+						"uid":                string(tenant.UID),
+						"controller":         true,
+						"blockOwnerDeletion": true,
+					},
+				},
+			},
+			"spec": map[string]interface{}{
+				"secretName": secretName,
+				"dnsNames": []interface{}{
+					hostname,
+				},
+				"issuerRef": map[string]interface{}{
+					"name": "letsencrypt-prod",
+					"kind": "ClusterIssuer",
+				},
+			},
+		},
+	}
+
+	// Use the k8sClient (controller-runtime client) which supports unstructured resources
+	certificateGVK := schema.GroupVersionKind{
+		Group:   "cert-manager.io",
+		Version: "v1",
+		Kind:    "Certificate",
+	}
+	certificate.SetGroupVersionKind(certificateGVK)
+
+	// Try to get existing certificate
+	existingCert := &unstructured.Unstructured{}
+	existingCert.SetGroupVersionKind(certificateGVK)
+	err := c.k8sClient.Get(ctx, types.NamespacedName{Name: certificateName, Namespace: tenant.Namespace}, existingCert)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			klog.V(2).Infof("Creating Certificate for Envoy gateway %s/%s with hostname %s", tenant.Namespace, tenant.Name, hostname)
+
+			// Create the certificate
+			createErr := c.k8sClient.Create(ctx, certificate)
+			if createErr != nil {
+				klog.Errorf("Failed to create Certificate: %v", createErr)
+				return fmt.Errorf("failed to create Certificate: %w", createErr)
+			}
+
+			c.recorder.Event(tenant, corev1.EventTypeNormal, "CertificateCreated", fmt.Sprintf("Certificate created for hostname %s", hostname))
+			klog.Infof("Successfully created Certificate %s in namespace %s", certificateName, tenant.Namespace)
+			return nil
+		}
+		klog.Errorf("Error checking Certificate: %v", err)
+		return fmt.Errorf("error checking certificate: %w", err)
+	}
+
+	klog.V(4).Infof("Certificate already exists for Envoy gateway %s/%s", tenant.Namespace, tenant.Name)
 	return nil
 }
 
