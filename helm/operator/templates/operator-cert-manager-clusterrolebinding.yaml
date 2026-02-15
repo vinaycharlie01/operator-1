@@ -15,5 +15,3 @@ subjects:
   name: minio-operator
   namespace: {{ .Release.Namespace }}
 {{- end }}
-
-# Made with Bob

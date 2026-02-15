@@ -16,6 +16,7 @@ package snapshot
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -111,11 +112,15 @@ func (sb *SnapshotBuilder) buildListeners() error {
 		WithAddressAndPort("0.0.0.0", 10000).
 		WithHCM("minio_ingress", RouteName, XDSClusterName)
 
-	// Enable TLS for client-facing connections
+	// Always enable TLS if RequestAutoCert is set
+	// The certificate secret should exist before Envoy starts
 	if sb.tenant.Spec.RequestAutoCert != nil && *sb.tenant.Spec.RequestAutoCert {
+		certPath := "/etc/envoy/gateway-certs/tls.crt"
+		keyPath := "/etc/envoy/gateway-certs/tls.key"
+
 		lb = lb.WithTLSTransportSocket(
-			"/etc/envoy/gateway-certs/tls.crt",
-			"/etc/envoy/gateway-certs/tls.key",
+			certPath,
+			keyPath,
 			tlsv3.TlsParameters_TLSv1_2,
 			tlsv3.TlsParameters_TLSv1_3,
 		)
@@ -171,6 +176,15 @@ func convertToResources[T types.Resource](items []T) []types.Resource {
 		resources[i] = item
 	}
 	return resources
+}
+
+// fileExists checks if a file exists and is not a directory
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 // Made with Bob

@@ -61,6 +61,7 @@ func NewServer(ctx context.Context, cache cache.Cache, l logr.Logger, cb *test.C
 func (s *Server) registerServer() {
 	// Register AggregatedDiscoveryService (required for ads_config in Envoy)
 	discoverygrpc.RegisterAggregatedDiscoveryServiceServer(s.grpcServer, s.xdsServer)
+
 	// Register individual discovery services
 	endpointservice.RegisterEndpointDiscoveryServiceServer(s.grpcServer, s.xdsServer)
 	clusterservice.RegisterClusterDiscoveryServiceServer(s.grpcServer, s.xdsServer)

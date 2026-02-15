@@ -23,5 +23,3 @@ rules:
   - patch
   - delete
 {{- end }}
-
-# Made with Bob

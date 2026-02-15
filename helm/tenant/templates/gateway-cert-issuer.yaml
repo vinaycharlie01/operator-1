@@ -1,0 +1,18 @@
+{{- if .Values.tenant.features.enableGateway }}
+{{- if and (not .Values.tenant.features.gatewayCert.crt) (not .Values.tenant.features.gatewayCert.key) }}
+{{- if .Values.tenant.features.gatewayCert.useCertManager }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: envoy-gateway-{{ .Values.tenant.name }}-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: envoy-gateway
+    tenant: {{ .Values.tenant.name }}
+spec:
+  selfSigned: {}
+{{- end }}
+{{- end }}
+{{- end }}
+
+# Made with Bob

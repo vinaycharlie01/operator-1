@@ -22,12 +22,9 @@ import (
 	miniov2 "github.com/minio/operator/pkg/apis/minio.min.io/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
@@ -41,78 +38,8 @@ const (
 	GatewayControllerPort = 18000
 )
 
-// checkClusterIssuer ensures the Let's Encrypt ClusterIssuer exists
-func (c *Controller) checkClusterIssuer(ctx context.Context) error {
-	issuerName := "letsencrypt-prod"
-
-	// Get email from environment variable or use default
-	email := os.Getenv("ACME_EMAIL")
-	if email == "" {
-		email = "vinikshatriyas@gmail.com"
-	}
-
-	// Define the ClusterIssuer resource
-	clusterIssuer := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "ClusterIssuer",
-			"metadata": map[string]interface{}{
-				"name": issuerName,
-			},
-			"spec": map[string]interface{}{
-				"acme": map[string]interface{}{
-					"server": "https://acme-v02.api.letsencrypt.org/directory",
-					"email":  email,
-					"privateKeySecretRef": map[string]interface{}{
-						"name": issuerName,
-					},
-					"solvers": []interface{}{
-						map[string]interface{}{
-							"http01": map[string]interface{}{
-								"ingress": map[string]interface{}{
-									"class": "nginx",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	// Use the k8sClient (controller-runtime client) which supports unstructured resources
-	clusterIssuerGVK := schema.GroupVersionKind{
-		Group:   "cert-manager.io",
-		Version: "v1",
-		Kind:    "ClusterIssuer",
-	}
-	clusterIssuer.SetGroupVersionKind(clusterIssuerGVK)
-
-	// Try to get existing ClusterIssuer
-	existingIssuer := &unstructured.Unstructured{}
-	existingIssuer.SetGroupVersionKind(clusterIssuerGVK)
-	err := c.k8sClient.Get(ctx, types.NamespacedName{Name: issuerName}, existingIssuer)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			klog.V(2).Infof("Creating ClusterIssuer %s", issuerName)
-
-			// Create the ClusterIssuer
-			createErr := c.k8sClient.Create(ctx, clusterIssuer)
-			if createErr != nil {
-				klog.Errorf("Failed to create ClusterIssuer: %v", createErr)
-				return fmt.Errorf("failed to create ClusterIssuer: %w", createErr)
-			}
-
-			klog.Infof("Successfully created ClusterIssuer %s", issuerName)
-			return nil
-		}
-		klog.Errorf("Error checking ClusterIssuer: %v", err)
-		return fmt.Errorf("error checking ClusterIssuer: %w", err)
-	}
-
-	klog.V(4).Infof("ClusterIssuer %s already exists", issuerName)
-	return nil
-}
+// checkClusterIssuer function removed - no longer using automatic cert-manager integration
+// Users should manually create wildcard certificates if TLS is needed
 
 // checkEnvoyGateway validates and creates/updates the Envoy gateway deployment for the tenant
 func (c *Controller) checkEnvoyGateway(ctx context.Context, tenant *miniov2.Tenant, nsName types.NamespacedName) error {
@@ -137,25 +64,12 @@ func (c *Controller) checkEnvoyGateway(ctx context.Context, tenant *miniov2.Tena
 		return err
 	}
 
-	// Create or update Envoy Ingress if hostname is specified
-	if tenant.Spec.Features.GatewayHostname != "" {
-		if err := c.checkEnvoyIngress(ctx, tenant); err != nil {
-			return err
-		}
-	}
+	// Ingress removed - LoadBalancer service handles all subdomain routing
+	// Envoy does hostname-based routing via xDS configuration
 
-	// Ensure ClusterIssuer exists before creating Certificate
-	if err := c.checkClusterIssuer(ctx); err != nil {
-		klog.Warningf("Failed to ensure ClusterIssuer exists: %v", err)
-		// Continue anyway - ClusterIssuer might already exist
-	}
-
-	// Create or update Certificate for TLS if hostname is specified
-	if tenant.Spec.Features.GatewayHostname != "" {
-		if err := c.checkEnvoyCertificate(ctx, tenant); err != nil {
-			return err
-		}
-	}
+	// Automatic certificate management removed
+	// Users should manually create wildcard certificates if TLS is needed
+	// The operator will automatically copy wildcard certs for each tenant
 
 	return nil
 }
@@ -524,163 +438,14 @@ func (c *Controller) checkEnvoyService(ctx context.Context, tenant *miniov2.Tena
 	return nil
 }
 
-// checkEnvoyIngress creates or updates the Envoy gateway Ingress for external access
-func (c *Controller) checkEnvoyIngress(ctx context.Context, tenant *miniov2.Tenant) error {
-	ingressName := fmt.Sprintf("%s-%s", EnvoyGatewayName, tenant.Name)
-	serviceName := fmt.Sprintf("%s-%s", EnvoyGatewayName, tenant.Name)
-	hostname := tenant.Spec.Features.GatewayHostname
+// checkEnvoyIngress function removed - Ingress not needed
+// LoadBalancer service handles all subdomain routing via Envoy xDS configuration
 
-	pathTypePrefix := networkingv1.PathTypePrefix
-	expectedIngress := &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ingressName,
-			Namespace: tenant.Namespace,
-			Labels: map[string]string{
-				"app":    EnvoyGatewayName,
-				"tenant": tenant.Name,
-			},
-			Annotations: map[string]string{
-				"nginx.ingress.kubernetes.io/rewrite-target": "/",
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(tenant, miniov2.SchemeGroupVersion.WithKind("Tenant")),
-			},
-		},
-		Spec: networkingv1.IngressSpec{
-			Rules: []networkingv1.IngressRule{
-				{
-					Host: hostname,
-					IngressRuleValue: networkingv1.IngressRuleValue{
-						HTTP: &networkingv1.HTTPIngressRuleValue{
-							Paths: []networkingv1.HTTPIngressPath{
-								{
-									Path:     "/",
-									PathType: &pathTypePrefix,
-									Backend: networkingv1.IngressBackend{
-										Service: &networkingv1.IngressServiceBackend{
-											Name: serviceName,
-											Port: networkingv1.ServiceBackendPort{
-												Number: 80,
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	ingress, err := c.kubeClientSet.NetworkingV1().Ingresses(tenant.Namespace).Get(ctx, ingressName, metav1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			klog.V(2).Infof("Creating Envoy Ingress for tenant %s/%s with hostname %s", tenant.Namespace, tenant.Name, hostname)
-			_, err = c.kubeClientSet.NetworkingV1().Ingresses(tenant.Namespace).Create(ctx, expectedIngress, metav1.CreateOptions{})
-			if err != nil {
-				return err
-			}
-			c.recorder.Event(tenant, corev1.EventTypeNormal, "IngressCreated", fmt.Sprintf("Envoy Gateway Ingress Created for hostname %s", hostname))
-			return nil
-		}
-		return err
-	}
-
-	// Update ingress if hostname changed
-	needsUpdate := false
-	if len(ingress.Spec.Rules) == 0 || ingress.Spec.Rules[0].Host != hostname {
-		needsUpdate = true
-	}
-
-	if needsUpdate {
-		ingress.Spec.Rules = expectedIngress.Spec.Rules
-		_, err = c.kubeClientSet.NetworkingV1().Ingresses(tenant.Namespace).Update(ctx, ingress, metav1.UpdateOptions{})
-		if err != nil {
-			return err
-		}
-		c.recorder.Event(tenant, corev1.EventTypeNormal, "IngressUpdated", fmt.Sprintf("Envoy Gateway Ingress Updated for hostname %s", hostname))
-	}
-
-	return nil
-}
-
-// checkEnvoyCertificate creates or updates the cert-manager Certificate for Envoy gateway
-func (c *Controller) checkEnvoyCertificate(ctx context.Context, tenant *miniov2.Tenant) error {
-	certificateName := fmt.Sprintf("envoy-gateway-%s", tenant.Name)
-	secretName := fmt.Sprintf("envoy-gateway-%s-tls", tenant.Name)
-	hostname := tenant.Spec.Features.GatewayHostname
-
-	// Define the Certificate resource using unstructured
-	certificate := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Certificate",
-			"metadata": map[string]interface{}{
-				"name":      certificateName,
-				"namespace": tenant.Namespace,
-				"labels": map[string]interface{}{
-					"app":    EnvoyGatewayName,
-					"tenant": tenant.Name,
-				},
-				"ownerReferences": []interface{}{
-					map[string]interface{}{
-						"apiVersion":         miniov2.SchemeGroupVersion.String(),
-						"kind":               "Tenant",
-						"name":               tenant.Name,
-						"uid":                string(tenant.UID),
-						"controller":         true,
-						"blockOwnerDeletion": true,
-					},
-				},
-			},
-			"spec": map[string]interface{}{
-				"secretName": secretName,
-				"dnsNames": []interface{}{
-					hostname,
-				},
-				"issuerRef": map[string]interface{}{
-					"name": "letsencrypt-prod",
-					"kind": "ClusterIssuer",
-				},
-			},
-		},
-	}
-
-	// Use the k8sClient (controller-runtime client) which supports unstructured resources
-	certificateGVK := schema.GroupVersionKind{
-		Group:   "cert-manager.io",
-		Version: "v1",
-		Kind:    "Certificate",
-	}
-	certificate.SetGroupVersionKind(certificateGVK)
-
-	// Try to get existing certificate
-	existingCert := &unstructured.Unstructured{}
-	existingCert.SetGroupVersionKind(certificateGVK)
-	err := c.k8sClient.Get(ctx, types.NamespacedName{Name: certificateName, Namespace: tenant.Namespace}, existingCert)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			klog.V(2).Infof("Creating Certificate for Envoy gateway %s/%s with hostname %s", tenant.Namespace, tenant.Name, hostname)
-
-			// Create the certificate
-			createErr := c.k8sClient.Create(ctx, certificate)
-			if createErr != nil {
-				klog.Errorf("Failed to create Certificate: %v", createErr)
-				return fmt.Errorf("failed to create Certificate: %w", createErr)
-			}
-
-			c.recorder.Event(tenant, corev1.EventTypeNormal, "CertificateCreated", fmt.Sprintf("Certificate created for hostname %s", hostname))
-			klog.Infof("Successfully created Certificate %s in namespace %s", certificateName, tenant.Namespace)
-			return nil
-		}
-		klog.Errorf("Error checking Certificate: %v", err)
-		return fmt.Errorf("error checking certificate: %w", err)
-	}
-
-	klog.V(4).Infof("Certificate already exists for Envoy gateway %s/%s", tenant.Namespace, tenant.Name)
-	return nil
-}
+// checkEnvoyCertificate function removed - no automatic certificate management
+// Wildcard certificate support is still available:
+// If a secret named "wildcard-tls-<base-domain>" exists in the tenant namespace,
+// the operator will automatically copy it as "envoy-gateway-<tenant-name>-tls"
+// This is handled in checkEnvoyDeployment when mounting the certificate volume
 
 // getImagePullSecrets returns the image pull secrets for Envoy Gateway
 // Reads from TENANT_GATEWAY_IMAGE_PULL_SECRET environment variable set by operator
