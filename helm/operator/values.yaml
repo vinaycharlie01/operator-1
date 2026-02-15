@@ -102,6 +102,9 @@ operator:
     tag: latest
     pullPolicy: Always
   # Install custom resource definitions
+  # Enable cert-manager integration for automatic TLS certificate provisioning
+  certManager:
+    enabled: true
   installCRDs: true
   ###
   #

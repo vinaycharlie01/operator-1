@@ -22,7 +22,6 @@ import (
 	miniov2 "github.com/minio/operator/pkg/apis/minio.min.io/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +37,9 @@ const (
 	GatewayControllerAddr = "gateway-controller.minio-operator.svc.cluster.local"
 	GatewayControllerPort = 18000
 )
+
+// checkClusterIssuer function removed - no longer using automatic cert-manager integration
+// Users should manually create wildcard certificates if TLS is needed
 
 // checkEnvoyGateway validates and creates/updates the Envoy gateway deployment for the tenant
 func (c *Controller) checkEnvoyGateway(ctx context.Context, tenant *miniov2.Tenant, nsName types.NamespacedName) error {
@@ -62,12 +64,12 @@ func (c *Controller) checkEnvoyGateway(ctx context.Context, tenant *miniov2.Tena
 		return err
 	}
 
-	// Create or update Envoy Ingress if hostname is specified
-	if tenant.Spec.Features.GatewayHostname != "" {
-		if err := c.checkEnvoyIngress(ctx, tenant); err != nil {
-			return err
-		}
-	}
+	// Ingress removed - LoadBalancer service handles all subdomain routing
+	// Envoy does hostname-based routing via xDS configuration
+
+	// Automatic certificate management removed
+	// Users should manually create wildcard certificates if TLS is needed
+	// The operator will automatically copy wildcard certs for each tenant
 
 	return nil
 }
@@ -77,8 +79,8 @@ func (c *Controller) checkEnvoyConfigMap(ctx context.Context, tenant *miniov2.Te
 	configMapName := fmt.Sprintf("%s-%s", EnvoyConfigMapName, tenant.Name)
 
 	envoyConfig := fmt.Sprintf(`node:
-  cluster: minio-gateway-%s
-  id: envoy-gateway-%s
+  cluster: gateway-%s-%s
+  id: gateway-%s-%s
 
 dynamic_resources:
   ads_config:
@@ -118,7 +120,7 @@ admin:
     socket_address:
       address: 0.0.0.0
       port_value: 9901
-`, tenant.Name, tenant.Name, GatewayControllerAddr, GatewayControllerPort)
+`, tenant.Namespace, tenant.Name, tenant.Namespace, tenant.Name, GatewayControllerAddr, GatewayControllerPort)
 
 	expectedConfigMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -211,8 +213,8 @@ func (c *Controller) checkEnvoyDeployment(ctx context.Context, tenant *miniov2.T
 							Command:         []string{"/usr/local/bin/envoy"},
 							Args: []string{
 								"-c", "/etc/envoy/envoy.yaml",
-								"--service-cluster", fmt.Sprintf("minio-gateway-%s", tenant.Name),
-								"--service-node", fmt.Sprintf("envoy-gateway-%s", tenant.Name),
+								"--service-cluster", fmt.Sprintf("gateway-%s-%s", tenant.Namespace, tenant.Name),
+								"--service-node", fmt.Sprintf("gateway-%s-%s", tenant.Namespace, tenant.Name),
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -230,6 +232,16 @@ func (c *Controller) checkEnvoyDeployment(ctx context.Context, tenant *miniov2.T
 								{
 									Name:      "envoy-config",
 									MountPath: "/etc/envoy",
+								},
+								{
+									Name:      "minio-tls-certs",
+									MountPath: "/etc/envoy/minio-certs",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "gateway-tls-certs",
+									MountPath: "/etc/envoy/gateway-certs",
+									ReadOnly:  true,
 								},
 							},
 							Resources: corev1.ResourceRequirements{
@@ -272,6 +284,40 @@ func (c *Controller) checkEnvoyDeployment(ctx context.Context, tenant *miniov2.T
 									LocalObjectReference: corev1.LocalObjectReference{
 										Name: configMapName,
 									},
+								},
+							},
+						},
+						{
+							Name: "minio-tls-certs",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: fmt.Sprintf("%s-tls", tenant.Name),
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "public.crt",
+											Path: "public.crt",
+										},
+									},
+									Optional: &[]bool{true}[0],
+								},
+							},
+						},
+						{
+							Name: "gateway-tls-certs",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: fmt.Sprintf("envoy-gateway-%s-tls", tenant.Name),
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "tls.crt",
+											Path: "tls.crt",
+										},
+										{
+											Key:  "tls.key",
+											Path: "tls.key",
+										},
+									},
+									Optional: &[]bool{true}[0],
 								},
 							},
 						},
@@ -328,8 +374,20 @@ func (c *Controller) checkEnvoyService(ctx context.Context, tenant *miniov2.Tena
 			Type: corev1.ServiceTypeLoadBalancer,
 			Ports: []corev1.ServicePort{
 				{
+					Name:       "https",
+					Port:       443,
+					TargetPort: intstr.FromInt(10000),
+					Protocol:   corev1.ProtocolTCP,
+				},
+				{
 					Name:       "http",
 					Port:       80,
+					TargetPort: intstr.FromInt(10000),
+					Protocol:   corev1.ProtocolTCP,
+				},
+				{
+					Name:       "console",
+					Port:       9443,
 					TargetPort: intstr.FromInt(10000),
 					Protocol:   corev1.ProtocolTCP,
 				},
@@ -380,86 +438,14 @@ func (c *Controller) checkEnvoyService(ctx context.Context, tenant *miniov2.Tena
 	return nil
 }
 
-// checkEnvoyIngress creates or updates the Envoy gateway Ingress for external access
-func (c *Controller) checkEnvoyIngress(ctx context.Context, tenant *miniov2.Tenant) error {
-	ingressName := fmt.Sprintf("%s-%s", EnvoyGatewayName, tenant.Name)
-	serviceName := fmt.Sprintf("%s-%s", EnvoyGatewayName, tenant.Name)
-	hostname := tenant.Spec.Features.GatewayHostname
+// checkEnvoyIngress function removed - Ingress not needed
+// LoadBalancer service handles all subdomain routing via Envoy xDS configuration
 
-	pathTypePrefix := networkingv1.PathTypePrefix
-	expectedIngress := &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ingressName,
-			Namespace: tenant.Namespace,
-			Labels: map[string]string{
-				"app":    EnvoyGatewayName,
-				"tenant": tenant.Name,
-			},
-			Annotations: map[string]string{
-				"nginx.ingress.kubernetes.io/rewrite-target": "/",
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(tenant, miniov2.SchemeGroupVersion.WithKind("Tenant")),
-			},
-		},
-		Spec: networkingv1.IngressSpec{
-			Rules: []networkingv1.IngressRule{
-				{
-					Host: hostname,
-					IngressRuleValue: networkingv1.IngressRuleValue{
-						HTTP: &networkingv1.HTTPIngressRuleValue{
-							Paths: []networkingv1.HTTPIngressPath{
-								{
-									Path:     "/",
-									PathType: &pathTypePrefix,
-									Backend: networkingv1.IngressBackend{
-										Service: &networkingv1.IngressServiceBackend{
-											Name: serviceName,
-											Port: networkingv1.ServiceBackendPort{
-												Number: 80,
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	ingress, err := c.kubeClientSet.NetworkingV1().Ingresses(tenant.Namespace).Get(ctx, ingressName, metav1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			klog.V(2).Infof("Creating Envoy Ingress for tenant %s/%s with hostname %s", tenant.Namespace, tenant.Name, hostname)
-			_, err = c.kubeClientSet.NetworkingV1().Ingresses(tenant.Namespace).Create(ctx, expectedIngress, metav1.CreateOptions{})
-			if err != nil {
-				return err
-			}
-			c.recorder.Event(tenant, corev1.EventTypeNormal, "IngressCreated", fmt.Sprintf("Envoy Gateway Ingress Created for hostname %s", hostname))
-			return nil
-		}
-		return err
-	}
-
-	// Update ingress if hostname changed
-	needsUpdate := false
-	if len(ingress.Spec.Rules) == 0 || ingress.Spec.Rules[0].Host != hostname {
-		needsUpdate = true
-	}
-
-	if needsUpdate {
-		ingress.Spec.Rules = expectedIngress.Spec.Rules
-		_, err = c.kubeClientSet.NetworkingV1().Ingresses(tenant.Namespace).Update(ctx, ingress, metav1.UpdateOptions{})
-		if err != nil {
-			return err
-		}
-		c.recorder.Event(tenant, corev1.EventTypeNormal, "IngressUpdated", fmt.Sprintf("Envoy Gateway Ingress Updated for hostname %s", hostname))
-	}
-
-	return nil
-}
+// checkEnvoyCertificate function removed - no automatic certificate management
+// Wildcard certificate support is still available:
+// If a secret named "wildcard-tls-<base-domain>" exists in the tenant namespace,
+// the operator will automatically copy it as "envoy-gateway-<tenant-name>-tls"
+// This is handled in checkEnvoyDeployment when mounting the certificate volume
 
 // getImagePullSecrets returns the image pull secrets for Envoy Gateway
 // Reads from TENANT_GATEWAY_IMAGE_PULL_SECRET environment variable set by operator

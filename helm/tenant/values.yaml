@@ -299,6 +299,17 @@ tenant:
     # Hostname for external access to the Envoy Gateway. If set, an Ingress resource will be created.
     # Example: "gateway.example.com"
     gatewayHostname: "158.176.9.206.nip.io"
+    ###
+    # Gateway TLS certificate configuration
+    # If both crt and key are empty, a self-signed certificate will be generated
+    # If cert-manager is available, it will be used to issue the certificate
+    gatewayCert:
+      # Base64 encoded TLS certificate (optional)
+      crt: ""
+      # Base64 encoded TLS private key (optional)
+      key: ""
+      # Use cert-manager to issue certificate (requires cert-manager to be installed)
+      useCertManager: true
   ###
   # Array of objects describing one or more buckets to create during tenant provisioning.
   # Example:

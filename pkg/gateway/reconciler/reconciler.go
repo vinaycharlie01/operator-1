@@ -103,3 +103,10 @@ func (r *XDSReconciler) updateSnapshotCache(ctx context.Context, nodeID string, 
 }
 
 // Made with Bob
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *XDSReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&miniov2.Tenant{}).
+		Complete(r)
+}

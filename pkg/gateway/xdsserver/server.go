@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
+	discoverygrpc "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 	listenerservice "github.com/envoyproxy/go-control-plane/envoy/service/listener/v3"
 	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
@@ -56,8 +57,12 @@ func NewServer(ctx context.Context, cache cache.Cache, l logr.Logger, cb *test.C
 	}
 }
 
-// registerServer registers this XDS and gRPC server with EDS, CDS, RDS and LDS discovery services
+// registerServer registers this XDS and gRPC server with ADS, EDS, CDS, RDS and LDS discovery services
 func (s *Server) registerServer() {
+	// Register AggregatedDiscoveryService (required for ads_config in Envoy)
+	discoverygrpc.RegisterAggregatedDiscoveryServiceServer(s.grpcServer, s.xdsServer)
+
+	// Register individual discovery services
 	endpointservice.RegisterEndpointDiscoveryServiceServer(s.grpcServer, s.xdsServer)
 	clusterservice.RegisterClusterDiscoveryServiceServer(s.grpcServer, s.xdsServer)
 	routeservice.RegisterRouteDiscoveryServiceServer(s.grpcServer, s.xdsServer)

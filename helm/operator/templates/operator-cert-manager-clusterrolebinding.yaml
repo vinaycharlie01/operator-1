@@ -1,0 +1,17 @@
+{{- if .Values.operator.certManager.enabled }}
+---
+# ClusterRoleBinding for cert-manager resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minio-operator-cert-manager
+  labels: {{- include "minio-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: minio-operator-cert-manager
+subjects:
+- kind: ServiceAccount
+  name: minio-operator
+  namespace: {{ .Release.Namespace }}
+{{- end }}

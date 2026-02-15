@@ -1,0 +1,30 @@
+{{- if .Values.tenant.features.enableGateway }}
+{{- if and (not .Values.tenant.features.gatewayCert.crt) (not .Values.tenant.features.gatewayCert.key) }}
+{{- if .Values.tenant.features.gatewayCert.useCertManager }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: envoy-gateway-{{ .Values.tenant.name }}-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: envoy-gateway
+    tenant: {{ .Values.tenant.name }}
+spec:
+  secretName: envoy-gateway-{{ .Values.tenant.name }}-tls
+  issuerRef:
+    name: envoy-gateway-{{ .Values.tenant.name }}-issuer
+    kind: Issuer
+  dnsNames:
+    - "*.{{ .Values.tenant.features.gatewayHostname }}"
+    - "{{ .Values.tenant.features.gatewayHostname }}"
+    - "*.{{ .Release.Namespace }}.{{ .Values.tenant.features.gatewayHostname }}"
+    - "{{ .Release.Namespace }}.{{ .Values.tenant.features.gatewayHostname }}"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+{{- end }}
+{{- end }}
+{{- end }}
+
+# Made with Bob

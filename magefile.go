@@ -378,6 +378,18 @@ func Dev() error {
 	return sh.Run("tilt", "up")
 }
 
+// TiltUp runs Tilt with streaming output for local development
+func TiltUp() error {
+	fmt.Println("Starting Tilt with streaming output...")
+	return sh.Run("tilt", "up", "--stream=true")
+}
+
+// TiltDown stops Tilt
+func TiltDown() error {
+	fmt.Println("Stopping Tilt...")
+	return sh.Run("tilt", "down")
+}
+
 // Helper functions
 
 func getVersion() string {
@@ -426,5 +438,67 @@ func getRegistry() string {
 // Made with Bob
 
 func Rsync() error {
-	return exec.Command("rsync", "-avz", "--progress", "/Users/vinaykumar/selfhosted/enlearn/operator/", "ibm-dev:/root/self-hosted/minio-operator").Run()
+	return exec.Command("rsync", "-avz", "--progress", "/Users/vinaykumar/selfhosted/enlearn/operator-1/", "ibm-dev:/root/self-hosted/minio-operator").Run()
+}
+
+// InstallTenant installs a MinIO tenant using Helm
+func InstallTenant() error {
+	fmt.Println("Installing MinIO tenant...")
+	return sh.Run("helm", "install",
+		"--namespace", "tenant-ns",
+		"--create-namespace",
+		"tenant",
+		"./helm/tenant")
+}
+
+// UninstallTenant uninstalls the MinIO tenant
+func UninstallTenant() error {
+	fmt.Println("Uninstalling MinIO tenant...")
+	return sh.Run("helm", "uninstall", "tenant", "--namespace", "tenant-ns")
+}
+
+// UpgradeTenant upgrades the MinIO tenant
+func UpgradeTenant() error {
+	fmt.Println("Upgrading MinIO tenant...")
+	return sh.Run("helm", "upgrade",
+		"--namespace", "tenant-ns",
+		"tenant",
+		"./helm/tenant")
+}
+
+// CleanNamespaces deletes tenant-ns and minio-operator namespaces
+func CleanNamespaces() error {
+	fmt.Println("Deleting tenant-ns namespace...")
+	if err := sh.Run("kubectl", "delete", "ns", "tenant-ns", "--ignore-not-found"); err != nil {
+		fmt.Printf("Warning: failed to delete tenant-ns: %v\n", err)
+	}
+
+	fmt.Println("Deleting minio-operator namespace...")
+	if err := sh.Run("kubectl", "delete", "ns", "minio-operator", "--ignore-not-found"); err != nil {
+		fmt.Printf("Warning: failed to delete minio-operator: %v\n", err)
+	}
+
+	fmt.Println("Namespaces cleanup complete")
+	return nil
+}
+
+// UninstallAll uninstalls tenant, operator, and deletes namespaces
+func UninstallAll() error {
+	fmt.Println("Uninstalling everything...")
+
+	// Uninstall tenant first
+	fmt.Println("Step 1: Uninstalling tenant...")
+	if err := UninstallTenant(); err != nil {
+		fmt.Printf("Warning: tenant uninstall failed: %v\n", err)
+	}
+
+	// Uninstall operator
+	fmt.Println("Step 2: Uninstalling operator...")
+	if err := Uninstall(); err != nil {
+		fmt.Printf("Warning: operator uninstall failed: %v\n", err)
+	}
+
+	// Clean namespaces
+	fmt.Println("Step 3: Cleaning namespaces...")
+	return CleanNamespaces()
 }
